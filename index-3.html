@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>📏 Live Face Measurements</title>
+  <script src="assets/face-api.js/dist/face-api.min.js"></script>
+  <style>
+    body {
+      font-family: Arial;
+      text-align: center;
+      background: #111;
+      color: #0ff;
+    }
+    h1 {
+      color: #00e6e6;
+    }
+    video {
+      border: 2px solid #0ff;
+      margin-top: 10px;
+    }
+    canvas {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      margin-top: 10px;
+    }
+    #measurements {
+      margin-top: 20px;
+      font-size: 18px;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+  <h1>📏 Live Face Measurements</h1>
+  <video id="video" width="640" height="480" autoplay muted></video>
+  <canvas id="overlay" width="640" height="480"></canvas>
+  <div id="measurements">Loading models...</div>
+
+  <script>
+    const video = document.getElementById('video');
+    const overlay = document.getElementById('overlay');
+    const ctx = overlay.getContext('2d');
+    const measurementsDiv = document.getElementById('measurements');
+
+    // Distance helper
+    const distance = (p1, p2) =>
+      Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+
+    // Smoothing storage
+    let smoothed = { eyeGap: null, noseLength: null, lipWidth: null, faceWidth: null };
+    const smoothFactor = 0.2;
+
+    function smoothValue(key, newValue) {
+      if (smoothed[key] == null) smoothed[key] = newValue;
+      else smoothed[key] = smoothed[key] + smoothFactor * (newValue - smoothed[key]);
+      return smoothed[key];
+    }
+
+    async function startVideo() {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      video.srcObject = stream;
+    }
+
+    function drawMeasurementLine(p1, p2, color, label) {
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Label position
+      const midX = (p1.x + p2.x) / 2;
+      const midY = (p1.y + p2.y) / 2;
+
+      ctx.fillStyle = color;
+      ctx.font = '14px Arial';
+      ctx.fillText(label, midX + 5, midY - 5);
+    }
+
+    async function run() {
+      // Load models from local assets folder
+      await faceapi.nets.tinyFaceDetector.loadFromUri('assets/models');
+      await faceapi.nets.faceLandmark68Net.loadFromUri('assets/models');
+
+      measurementsDiv.innerHTML = "✅ Models loaded. Initializing camera...";
+      startVideo();
+
+      video.addEventListener('play', () => {
+        const loop = async () => {
+          const detection = await faceapi
+            .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
+            .withFaceLandmarks();
+
+          ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+          if (detection) {
+            faceapi.draw.drawFaceLandmarks(overlay, detection);
+
+            const points = detection.landmarks.positions;
+            const eyeGap = distance(points[36], points[45]);
+            const noseLength = distance(points[27], points[33]);
+            const lipWidth = distance(points[48], points[54]);
+            const faceWidth = distance(points[0], points[16]);
+
+            // Smooth values
+            const eyeGapSmooth = smoothValue('eyeGap', eyeGap);
+            const noseLengthSmooth = smoothValue('noseLength', noseLength);
+            const lipWidthSmooth = smoothValue('lipWidth', lipWidth);
+            const faceWidthSmooth = smoothValue('faceWidth', faceWidth);
+
+            // Convert to cm (assuming avg. eye gap is 6.3 cm)
+            const scaleFactor = 6.3 / eyeGapSmooth;
+            const eyeGapCm = eyeGapSmooth * scaleFactor;
+            const noseLengthCm = noseLengthSmooth * scaleFactor;
+            const lipWidthCm = lipWidthSmooth * scaleFactor;
+            const faceWidthCm = faceWidthSmooth * scaleFactor;
+
+            // Draw measurement lines with labels
+            drawMeasurementLine(points[36], points[45], '#00f', `${eyeGapCm.toFixed(2)} cm`);
+            drawMeasurementLine(points[27], points[33], '#ff0', `${noseLengthCm.toFixed(2)} cm`);
+            drawMeasurementLine(points[48], points[54], '#f0f', `${lipWidthCm.toFixed(2)} cm`);
+            drawMeasurementLine(points[0], points[16], '#0f0', `${faceWidthCm.toFixed(2)} cm`);
+
+            // Display in text
+            measurementsDiv.innerHTML = `
+              👁 Eye Gap: ${eyeGapCm.toFixed(2)} cm<br>
+              👃 Nose Length: ${noseLengthCm.toFixed(2)} cm<br>
+              👄 Lip Width: ${lipWidthCm.toFixed(2)} cm<br>
+              😀 Face Width: ${faceWidthCm.toFixed(2)} cm
+            `;
+          }
+
+          requestAnimationFrame(loop);
+        };
+        loop();
+      });
+    }
+
+    run();
+  </script>
+</body>
+</html>

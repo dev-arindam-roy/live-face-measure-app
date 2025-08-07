@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Live Face Measurements</title>
+  <!-- Use original face-api.js UMD build -->
+  <!-- <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script> -->
+   <script src="assets/face-api.js/dist/face-api.min.js"></script>
+  <style>
+    body {
+      font-family: Arial;
+      text-align: center;
+      background: #111;
+      color: #0ff;
+    }
+    video {
+      border: 2px solid #0ff;
+      margin-top: 10px;
+    }
+    canvas {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      margin-top: 10px;
+    }
+    #measurements {
+      margin-top: 20px;
+      font-size: 18px;
+    }
+  </style>
+</head>
+<body>
+  <h1>📏 Live Face Measurements</h1>
+  <video id="video" width="640" height="480" autoplay muted></video>
+  <canvas id="overlay" width="640" height="480"></canvas>
+  <div id="measurements">Loading models...</div>
+
+  <script>
+    const video = document.getElementById('video');
+    const overlay = document.getElementById('overlay');
+    const ctx = overlay.getContext('2d');
+    const measurementsDiv = document.getElementById('measurements');
+
+    const distance = (p1, p2) =>
+      Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+
+    async function startVideo() {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      video.srcObject = stream;
+    }
+
+    async function run() {
+      // Load models from official face-api.js CDN
+      await faceapi.nets.tinyFaceDetector.loadFromUri('assets/models');
+      await faceapi.nets.faceLandmark68Net.loadFromUri('assets/models');
+
+      measurementsDiv.innerHTML = "Models loaded. Initializing camera...";
+      startVideo();
+
+      video.addEventListener('play', () => {
+        const loop = async () => {
+          const detection = await faceapi
+            .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
+            .withFaceLandmarks();
+
+          ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+          if (detection) {
+            faceapi.draw.drawFaceLandmarks(overlay, detection);
+
+            const points = detection.landmarks.positions;
+            const eyeGap = distance(points[36], points[45]);
+            const noseLength = distance(points[27], points[33]);
+            const lipWidth = distance(points[48], points[54]);
+            const faceWidth = distance(points[0], points[16]);
+
+            measurementsDiv.innerHTML = `
+              👁 Eye Gap: ${eyeGap.toFixed(2)} px<br>
+              👃 Nose Length: ${noseLength.toFixed(2)} px<br>
+              👄 Lip Width: ${lipWidth.toFixed(2)} px<br>
+              😀 Face Width: ${faceWidth.toFixed(2)} px
+            `;
+          }
+
+          requestAnimationFrame(loop);
+        };
+        loop();
+      });
+    }
+
+    run();
+  </script>
+</body>
+</html>
